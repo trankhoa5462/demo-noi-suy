@@ -627,42 +627,76 @@ if run_btn:
         st.markdown(r)
 
     # ================== PHÂN TÍCH k ==================
-    if mode == "Local" and len(valid_x) > 4:
+    # Chỉ hiện biểu đồ MAE theo k khi chọn "So sánh" VÀ có Ground Truth
+    if "So sánh" in method_raw and mae_lag is not None and mode == "Local" and len(valid_x) > 4:
         st.markdown('<div class="section-header">📉 Ảnh hưởng của k đến sai số MAE</div>', unsafe_allow_html=True)
 
         k_max = min(12, len(valid_x) - 1)
         k_values = list(range(2, k_max + 1))
-        mae_list = []
+        mae_k_lag, mae_k_new = [], []
 
         for test_k in k_values:
-            temp_pred = y_work.copy()
+            # Lagrange
+            temp_lag = y_work.copy()
             for i in missing_idx:
                 nx, ny = get_k_points(x_all[i], valid_x, valid_y, test_k)
                 val = lagrange(nx, ny, x_all[i])
-                temp_pred[i] = val if val is not None else float("nan")
-            err = calc_mae(temp_pred)
-            mae_list.append(err if err is not None else 0)
+                temp_lag[i] = val if val is not None else float("nan")
+            err_lag = calc_mae(temp_lag)
+            mae_k_lag.append(err_lag if err_lag is not None else 0)
 
-        if any(v > 0 for v in mae_list):
+            # Newton
+            temp_new = y_work.copy()
+            for i in missing_idx:
+                nx, ny = get_k_points(x_all[i], valid_x, valid_y, test_k)
+                tbl = divided_difference(nx, ny)
+                val = newton_unequal(nx, tbl, x_all[i]) if tbl else float("nan")
+                temp_new[i] = val if val is not None else float("nan")
+            err_new = calc_mae(temp_new)
+            mae_k_new.append(err_new if err_new is not None else 0)
+
+        if any(v > 0 for v in mae_k_lag):
             fig_k = go.Figure()
             fig_k.add_trace(go.Scatter(
-                x=k_values, y=mae_list, mode="lines+markers",
+                x=k_values, y=mae_k_lag, mode="lines+markers",
                 marker=dict(color="#e74c3c", size=8),
                 line=dict(color="#c0392b", width=2),
-                name="MAE theo k"
+                name="Lagrange MAE"
             ))
-            best_k = k_values[mae_list.index(min(mae_list))]
-            fig_k.add_vline(x=best_k, line_dash="dash", line_color="green",
-                            annotation_text=f"k tốt nhất = {best_k}")
+            fig_k.add_trace(go.Scatter(
+                x=k_values, y=mae_k_new, mode="lines+markers",
+                marker=dict(color="#27ae60", size=8),
+                line=dict(color="#1e8449", width=2),
+                name="Newton MAE"
+            ))
+            best_k = k_values[mae_k_lag.index(min(mae_k_lag))]
+            fig_k.add_vline(x=best_k, line_dash="dash", line_color="gray",
+                            annotation_text=f"k tốt nhất = {best_k}",
+                            annotation_font_color="#111111")
             fig_k.update_layout(
-                title="Sai số MAE của Lagrange theo số điểm k (chế độ Lân cận)",
-                xaxis_title="k (số điểm nội suy)",
-                yaxis_title="MAE",
-                height=340,
-                paper_bgcolor="white", plot_bgcolor="#f8f9fa"
+                title=dict(text="So sánh MAE Lagrange & Newton theo số điểm k", font=dict(color="#111111", size=14)),
+                xaxis=dict(title=dict(text="k (số điểm nội suy)", font=dict(color="#222222")),
+                           tickfont=dict(color="#222222"), gridcolor="#dddddd"),
+                yaxis=dict(title=dict(text="MAE", font=dict(color="#222222")),
+                           tickfont=dict(color="#222222"), gridcolor="#dddddd"),
+                legend=dict(font=dict(color="#111111")),
+                height=360,
+                paper_bgcolor="white", plot_bgcolor="#f8f9fa",
+                font=dict(color="#222222")
             )
             st.plotly_chart(fig_k, use_container_width=True)
-            st.caption(f"💡 k tốt nhất trong thử nghiệm này: **k = {best_k}** (MAE = {min(mae_list):.4f})")
+            st.caption(f"💡 k tốt nhất: **k = {best_k}** | MAE Lagrange = {min(mae_k_lag):.4f} | MAE Newton = {min(mae_k_new):.4f}")
+
+    elif mode == "Local" and mae_lag is None and len(valid_x) > 4:
+        # Không có Ground Truth → ẩn biểu đồ, giải thích lý do
+        if "So sánh" in method_raw:
+            st.markdown('<div class="section-header">📉 Ảnh hưởng của k đến sai số MAE</div>', unsafe_allow_html=True)
+            st.info(
+                "📌 **Biểu đồ MAE theo k không hiển thị** vì file dữ liệu có NaN thực sự "
+                "(không có Ground Truth để đối chiếu). "
+                "Biểu đồ này chỉ có ý nghĩa khi dùng dữ liệu đầy đủ rồi tự tạo điểm khuyết — "
+                "như trong Phần 3 của báo cáo."
+            )
 
     # ================== BẢNG TỶ SAI PHÂN ==================
     if not use_newton_equal and len(valid_x) <= 12:
